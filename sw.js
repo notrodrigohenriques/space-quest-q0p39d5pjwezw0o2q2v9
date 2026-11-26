@@ -1,5 +1,5 @@
 /* Ragnar's Space Quest — cache the app shell, badges, and mission alerts. */
-const CACHE = "ragnar-quest-v3";
+const CACHE = "ragnar-quest-v4";
 const TZ = "America/Regina";
 const DB_NAME = "ragnar-quest";
 const DB_VER = 2;
@@ -211,6 +211,11 @@ async function handlePush(event) {
     badge: "./icons/icon-192.png",
     data: { url: "./" },
   });
+
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of windows) {
+    client.postMessage({ type: "push", kind: payload.kind || "mission" });
+  }
 }
 
 async function openApp() {

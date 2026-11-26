@@ -15,6 +15,15 @@
   let state = null;
   let pendingBlob = null;
   let pinUiMode = "enter";
+  let lastDataSnapshot = "";
+  let refreshTimer = null;
+  let refreshInFlight = null;
+  let lastRefreshAt = 0;
+  let uploadNoteState = null;
+  let permissionWatcherBound = false;
+  let refreshGesturesBound = false;
+  const DATA_POLL_MS = 5 * 60 * 1000;
+  const REFRESH_DEBOUNCE_MS = 750;
 
   function todayISO(override) {
     if (override) return override;
@@ -216,6 +225,11 @@
     `;
     const snap = $("snapBtn");
     if (snap) snap.addEventListener("click", () => $("pagePhoto").click());
+    const note = $("uploadNote");
+    if (note && uploadNoteState) {
+      note.className = uploadNoteState.className;
+      note.textContent = uploadNoteState.text;
+    }
   }
 
   function renderStrengths() {
@@ -259,13 +273,18 @@
   }
 
   function renderAll() {
-    $("greet").textContent = `Hi, ${data.childName || "explorer"}!`;
+    if ($("greet")) $("greet").textContent = `Hi, ${data.childName || "explorer"}!`;
     renderHud();
     renderQuest();
     renderStrengths();
     renderMap();
     renderBadges();
     maybeShowInstallTip();
+    // If alerts are already allowed, flip the banner synchronously so the
+    // "Turn on" button never flashes while we wait on the service worker.
+    if (isStandalone() && notificationPermission() === "granted") {
+      setAlertsOnState();
+    }
     renderAlerts();
     updateAppBadge();
     const shot = params.get("shot");
@@ -275,6 +294,12 @@
       $("previewImage").src = "./icons/sample-page.jpg";
       $("previewOverlay").hidden = false;
     }
+  }
+
+  function afterStateChange() {
+    saveLocalState();
+    renderAll();
+    updateAppBadge();
   }
 
   function maybeShowInstallTip() {
@@ -332,12 +357,39 @@
     }
   }
 
+  function notificationPermission() {
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission) {
+        return Notification.permission;
+      }
+    } catch (err) { /* ignore */ }
+    return "default";
+  }
+
+  async function queryNotificationPermission() {
+    const direct = notificationPermission();
+    if (direct === "granted" || direct === "denied") return direct;
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        const status = await navigator.permissions.query({ name: "notifications" });
+        if (status && status.state === "granted") return "granted";
+        if (status && status.state === "denied") return "denied";
+        if (status && status.state === "prompt") return "default";
+      }
+    } catch (err) { /* iOS may not support this query */ }
+    return direct;
+  }
+
   function setAlertsOnState() {
     const card = $("alertsCard");
     const btn = $("alertsBtn");
     const help = $("alertsHelp");
     const note = $("alertsNote");
     const onEl = $("alertsOn");
+    if (!isStandalone()) {
+      if (card) card.hidden = true;
+      return;
+    }
     if (card) {
       card.hidden = false;
       card.classList.add("is-on");
@@ -358,27 +410,25 @@
       card.hidden = true;
       return;
     }
+    // Immediate sync path: never leave the Turn on button up once Allow was tapped.
+    if (notificationPermission() === "granted") {
+      setAlertsOnState();
+      return;
+    }
+    const perm = await queryNotificationPermission();
+    if (perm === "granted" || notificationPermission() === "granted") {
+      setAlertsOnState();
+      return;
+    }
     card.hidden = false;
+    card.classList.remove("is-on");
     const btn = $("alertsBtn");
     const help = $("alertsHelp");
     const note = $("alertsNote");
     const onEl = $("alertsOn");
-    const granted = typeof Notification !== "undefined" && Notification.permission === "granted";
-    const denied = typeof Notification !== "undefined" && Notification.permission === "denied";
-    const sub = granted ? await getExistingSubscription() : null;
-    if (granted && sub) {
-      setAlertsOnState();
-      return;
-    }
-    card.classList.remove("is-on");
     if (onEl) onEl.hidden = true;
     if (help) help.hidden = false;
-    if (granted) {
-      // Already allowed, but no subscription yet — don't flash the Turn on button.
-      if (btn) btn.hidden = true;
-      help.textContent = "Finishing mission alerts…";
-      if (note) note.hidden = true;
-    } else if (denied) {
+    if (perm === "denied") {
       if (btn) btn.hidden = true;
       help.textContent = "That’s okay. You can turn on alerts later in iPad Settings if you change your mind.";
       if (note) note.hidden = true;
@@ -389,6 +439,31 @@
     }
   }
 
+  async function onPermissionMaybeChanged() {
+    const perm = await queryNotificationPermission();
+    if (perm === "granted" || notificationPermission() === "granted") {
+      setAlertsOnState();
+      updateAppBadge();
+      ensureSubscription();
+      return;
+    }
+    await renderAlerts();
+    updateAppBadge();
+  }
+
+  function watchPermissionChanges() {
+    if (permissionWatcherBound) return;
+    permissionWatcherBound = true;
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "notifications" }).then((status) => {
+          status.addEventListener("change", () => { onPermissionMaybeChanged(); });
+          if (status.state === "granted") onPermissionMaybeChanged();
+        }).catch(() => {});
+      }
+    } catch (err) { /* ignore */ }
+  }
+
   async function enableAlerts(ev) {
     if (ev) ev.preventDefault();
     const btn = $("alertsBtn");
@@ -397,10 +472,15 @@
     try {
       if (!("Notification" in window)) return;
       const perm = await Notification.requestPermission();
-      if (perm !== "granted") {
+      const grantedNow = perm === "granted" || notificationPermission() === "granted" ||
+        (await queryNotificationPermission()) === "granted";
+      if (!grantedNow) {
         await renderAlerts();
         return;
       }
+      // Flip the banner immediately after Allow — do not wait on subscribe or fetch.
+      setAlertsOnState();
+      updateAppBadge();
       await navigator.serviceWorker.register("./sw.js");
       const reg = await navigator.serviceWorker.ready;
       const cfg = notificationConfig();
@@ -419,15 +499,10 @@
           subscription: sub.toJSON(),
         });
       }
-      if (Notification.permission === "granted" && sub) {
-        setAlertsOnState();
-        updateAppBadge();
-        return;
-      }
-      await renderAlerts();
+      setAlertsOnState();
+      updateAppBadge();
     } catch (err) {
-      const sub = await getExistingSubscription();
-      if (typeof Notification !== "undefined" && Notification.permission === "granted" && sub) {
+      if (notificationPermission() === "granted" || (await queryNotificationPermission()) === "granted") {
         setAlertsOnState();
         updateAppBadge();
         return;
@@ -447,6 +522,7 @@
       await renderAlerts();
       return;
     }
+    setAlertsOnState();
     if (!("serviceWorker" in navigator) || !window.PushManager) return;
     const cfg = notificationConfig();
     try {
@@ -469,6 +545,142 @@
       /* retry on a later launch */
     }
     await renderAlerts();
+  }
+
+  function snapshotData(obj) {
+    try { return JSON.stringify(obj); } catch (err) { return ""; }
+  }
+
+  async function refreshFromServer(reason) {
+    if (params.get("shot")) return false;
+    if (refreshInFlight) return refreshInFlight;
+    const run = (async () => {
+      lastRefreshAt = Date.now();
+      try {
+        const fresh = await loadData();
+        const snap = snapshotData(fresh);
+        if (!snap) return false;
+        if (snap === lastDataSnapshot) {
+          await onPermissionMaybeChanged();
+          return false;
+        }
+        lastDataSnapshot = snap;
+        data = fresh;
+        const local = loadLocalState();
+        state = mergeProgress(data.progress, local, Boolean(demoMode));
+        applyDemoStateTweaks();
+        renderAll();
+        return true;
+      } catch (err) {
+        await onPermissionMaybeChanged();
+        return false;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+    refreshInFlight = run;
+    return run;
+  }
+
+  function scheduleRefresh(reason) {
+    const wait = Math.max(0, REFRESH_DEBOUNCE_MS - (Date.now() - lastRefreshAt));
+    clearTimeout(scheduleRefresh._t);
+    scheduleRefresh._t = setTimeout(() => { refreshFromServer(reason); }, wait);
+  }
+
+  function startDataPoll() {
+    stopDataPoll();
+    refreshTimer = setInterval(() => {
+      if (document.visibilityState === "visible") refreshFromServer("poll");
+    }, DATA_POLL_MS);
+  }
+
+  function stopDataPoll() {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  function maybeUpdateServiceWorker() {
+    if (!("serviceWorker" in navigator) || params.get("shot")) return;
+    navigator.serviceWorker.getRegistration("./sw.js").then((reg) => {
+      if (reg) return reg.update();
+    }).catch(() => {});
+  }
+
+  function onAppVisible(reason) {
+    if (document.visibilityState && document.visibilityState !== "visible" && reason === "visibility") {
+      return;
+    }
+    // Instant UI update for alerts/badge — do not wait for the network.
+    const perm = notificationPermission();
+    if (perm === "granted") {
+      setAlertsOnState();
+      updateAppBadge();
+      ensureSubscription();
+    } else {
+      onPermissionMaybeChanged();
+    }
+    maybeUpdateServiceWorker();
+    if (reason === "focus") scheduleRefresh(reason);
+    else refreshFromServer(reason);
+    if (document.visibilityState === "visible") startDataPoll();
+  }
+
+  function bindRefreshListeners() {
+    if (refreshGesturesBound) return;
+    refreshGesturesBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") onAppVisible("visibility");
+      else stopDataPoll();
+    });
+    window.addEventListener("pageshow", (ev) => {
+      onAppVisible(ev.persisted ? "pageshow-bfcache" : "pageshow");
+    });
+    window.addEventListener("focus", () => onAppVisible("focus"));
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", (ev) => {
+        const msg = ev.data || {};
+        if (msg.type === "push" || msg.type === "refresh-data") {
+          refreshFromServer("push");
+        }
+      });
+      // Reload on a *new* controlling SW, not the first claim after install.
+      let hadController = Boolean(navigator.serviceWorker.controller);
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadController) {
+          hadController = true;
+          return;
+        }
+        if (window.__sqSwReloading) return;
+        window.__sqSwReloading = true;
+        location.reload();
+      });
+    }
+    const header = $("appHeader");
+    if (header) {
+      header.addEventListener("click", (ev) => {
+        if (ev.target && ev.target.closest && ev.target.closest("button, a, input")) return;
+        refreshFromServer("header");
+      });
+    }
+    let pullStartY = 0;
+    let pulling = false;
+    window.addEventListener("touchstart", (ev) => {
+      if (window.scrollY <= 0 && ev.touches && ev.touches[0]) {
+        pullStartY = ev.touches[0].clientY;
+        pulling = true;
+      } else {
+        pulling = false;
+      }
+    }, { passive: true });
+    window.addEventListener("touchend", (ev) => {
+      if (!pulling) return;
+      pulling = false;
+      const y = (ev.changedTouches && ev.changedTouches[0] && ev.changedTouches[0].clientY) || 0;
+      if (window.scrollY <= 0 && y - pullStartY > 72) refreshFromServer("pull");
+    }, { passive: true });
   }
 
   function escapeHtml(str) {
@@ -691,12 +903,14 @@
         note.className = "upload-note wait";
         note.textContent = "Saved on this iPad. A grown-up will hook up the family journal send later.";
       }
+      uploadNoteState = { className: "upload-note wait", text: "Saved on this iPad. A grown-up will hook up the family journal send later." };
       return;
     }
     if (note) {
       note.className = "upload-note wait";
       note.textContent = "Sending your page to the family journal…";
     }
+    uploadNoteState = { className: "upload-note wait", text: (note && note.textContent) || "Sending your page to the family journal…" };
     try {
       const imageBase64 = await blobToBase64(record.blob);
       const body = JSON.stringify({
@@ -719,12 +933,17 @@
         note.className = "upload-note ok";
         note.textContent = "Your page is in the family journal!";
       }
+      uploadNoteState = { className: "upload-note ok", text: "Your page is in the family journal!" };
+      renderQuest();
+      updateAppBadge();
     } catch (err) {
       await markPhotoStatus(record.id, "failed");
       if (note) {
         note.className = "upload-note wait";
         note.textContent = "Saved on this iPad. We’ll send it when the internet is back.";
       }
+      uploadNoteState = { className: "upload-note wait", text: "Saved on this iPad. We’ll send it when the internet is back." };
+      renderQuest();
     }
   }
 
@@ -794,7 +1013,7 @@
     }
     if (!state.pin) {
       state.pin = value;
-      saveLocalState();
+      afterStateChange();
       pinUiMode = "saved";
       showPinDialog();
       return;
@@ -887,7 +1106,10 @@
       /* Production: ignore any leftover demo completions if they were never saved locally. */
     }
     applyDemoStateTweaks();
+    lastDataSnapshot = snapshotData(data);
     bind();
+    bindRefreshListeners();
+    watchPermissionChanges();
     renderAll();
     if (demoMode === "complete") {
       playCelebration(effectiveToday());
@@ -896,11 +1118,13 @@
       setupDemoSnap();
     }
     if ("serviceWorker" in navigator && !params.get("shot")) {
-      navigator.serviceWorker.register("./sw.js").then(() => {
+      navigator.serviceWorker.register("./sw.js").then((reg) => {
+        try { reg.update(); } catch (err) { /* ignore */ }
         if (!demoMode) ensureSubscription();
         else renderAlerts();
       }).catch(() => { renderAlerts(); });
     }
+    startDataPoll();
     if (params.get("test") === "1") {
       window.__spaceQuestTest = {
         badgeCount: () => badgeCountForToday(),
@@ -921,6 +1145,15 @@
         hasPushManager: Boolean(window.PushManager),
         setAlertsOnState,
         renderAlerts,
+        refreshFromServer,
+        onAppVisible,
+        onPermissionMaybeChanged,
+        notificationPermission,
+        queryNotificationPermission,
+        questTitle: () => ($("questCard") && $("questCard").querySelector(".quest-title") || {}).textContent || "",
+        questText: () => $("questCard") ? $("questCard").innerText : "",
+        hudText: () => $("hud") ? $("hud").innerText : "",
+        snapshot: () => lastDataSnapshot,
       };
       document.body.dataset.test = JSON.stringify({
         badgeCount: window.__spaceQuestTest.badgeCount(),
