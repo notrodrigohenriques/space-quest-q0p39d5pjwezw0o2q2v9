@@ -317,3 +317,11 @@ body.shot-badges .quest-card,
 body.shot-badges .split,
 body.shot-badges .map-card,
 body.shot-badges .foot { display: none !important; }
+
+.alerts-card {
+  background: linear-gradient(180deg, rgba(126, 200, 255, 0.16), rgba(22, 28, 68, 0.7));
+  text-align: center;
+}
+.alerts-card h2 { margin-bottom: 8px; }
+.alerts-card .muted { margin: 0 auto 16px; max-width: 32ch; }
+.alerts-card .btn { margin-top: 4px; }

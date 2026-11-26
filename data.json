@@ -307,5 +307,10 @@
     "awardedBadges": [
       "page-snapper"
     ]
+  },
+  "notifications": {
+    "vapidPublicKey": "BOdYWwM_GmPOvaGykm5aFVDKcJJ2X4inMYIISM_ruDAsD3Jyc4m6308oX5o6p4raUZBa8KfLXzxPhScGa1nlAb4",
+    "url": "",
+    "subscribeToken": ""
   }
 }

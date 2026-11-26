@@ -3,6 +3,7 @@
   const TZ = "America/Regina";
   const STORE = "ragnar-quest-state-v1";
   const DB_NAME = "ragnar-quest";
+  const DB_VER = 2;
   const XP_PER_PAGE = 10;
   const STARS_PER_PAGE = 3;
 
@@ -45,6 +46,35 @@
 
   function saveLocalState() {
     localStorage.setItem(STORE, JSON.stringify(state));
+    syncStateToIdb();
+  }
+
+  function isStandalone() {
+    return window.navigator.standalone === true ||
+      window.matchMedia("(display-mode: standalone)").matches ||
+      params.get("standalone") === "1";
+  }
+
+  function openQuestPending() {
+    const today = effectiveToday();
+    return Boolean(approvedQuestFor(today) && !isCompleted(today));
+  }
+
+  function badgeCountForToday() {
+    return openQuestPending() ? 1 : 0;
+  }
+
+  async function updateAppBadge() {
+    const count = badgeCountForToday();
+    try {
+      if (count > 0 && "setAppBadge" in navigator) {
+        await navigator.setAppBadge(count);
+      } else if (count === 0 && "clearAppBadge" in navigator) {
+        await navigator.clearAppBadge();
+      }
+    } catch (err) {
+      /* badging is best-effort, especially before a Home Screen install */
+    }
   }
 
   function emptyProgress() {
@@ -235,6 +265,8 @@
     renderMap();
     renderBadges();
     maybeShowInstallTip();
+    renderAlerts();
+    updateAppBadge();
     const shot = params.get("shot");
     if (shot === "map") document.body.classList.add("shot-map");
     if (shot === "badges") document.body.classList.add("shot-badges");
@@ -245,9 +277,152 @@
   }
 
   function maybeShowInstallTip() {
-    const standalone = window.navigator.standalone === true ||
-      window.matchMedia("(display-mode: standalone)").matches;
-    $("installTip").hidden = standalone || Boolean(demoMode);
+    $("installTip").hidden = isStandalone() || Boolean(demoMode) || params.get("test") === "1";
+  }
+
+  function notificationConfig() {
+    const n = data.notifications || {};
+    return {
+      url: n.url || (data.upload && data.upload.url) || "",
+      token: n.subscribeToken || "",
+      vapidPublicKey: n.vapidPublicKey || "",
+    };
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  function postBackend(payload) {
+    const { url } = notificationConfig();
+    if (!url) return Promise.resolve({ ok: false, error: "not-configured" });
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+    }).then((res) => res.json().catch(() => ({ ok: res.ok })));
+  }
+
+  function renderAlerts() {
+    const card = $("alertsCard");
+    if (!card) return;
+    const supported = "Notification" in window && "serviceWorker" in navigator &&
+      window.PushManager;
+    const standalone = isStandalone();
+    if (!supported || !standalone) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+    const btn = $("alertsBtn");
+    const help = $("alertsHelp");
+    const note = $("alertsNote");
+    const granted = Notification.permission === "granted";
+    const denied = Notification.permission === "denied";
+    const cfg = notificationConfig();
+    if (granted) {
+      btn.hidden = true;
+      help.textContent = "Mission alerts are on! I’ll tell you when a new quest is ready.";
+      if (note) {
+        note.hidden = !cfg.url;
+        if (!cfg.url) {
+          note.className = "upload-note wait";
+          note.textContent = "A grown-up will finish hooking up the send later.";
+        } else {
+          note.hidden = true;
+        }
+      }
+    } else if (denied) {
+      btn.hidden = true;
+      help.textContent = "That’s okay. You can turn on alerts later in iPad Settings if you change your mind.";
+    } else {
+      btn.hidden = false;
+      help.textContent = "I can ping you when a new writing mission is ready.";
+      if (note) note.hidden = true;
+    }
+  }
+
+  async function enableAlerts(ev) {
+    if (ev) ev.preventDefault();
+    const btn = $("alertsBtn");
+    const note = $("alertsNote");
+    if (btn) btn.disabled = true;
+    try {
+      if (!("Notification" in window)) return;
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        renderAlerts();
+        return;
+      }
+      await navigator.serviceWorker.register("./sw.js");
+      const reg = await navigator.serviceWorker.ready;
+      const cfg = notificationConfig();
+      if (!cfg.vapidPublicKey) throw new Error("no-vapid");
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey),
+      });
+      if (cfg.url && cfg.token) {
+        const result = await postBackend({
+          action: "subscribe",
+          token: cfg.token,
+          subscription: sub.toJSON(),
+        });
+        if (note) {
+          note.hidden = false;
+          if (result && result.ok) {
+            note.className = "upload-note ok";
+            note.textContent = "Mission alerts are on! 🚀";
+          } else {
+            note.className = "upload-note wait";
+            note.textContent = "Saved on this iPad. We’ll hook up the send when a grown-up finishes setup.";
+          }
+        }
+      } else if (note) {
+        note.hidden = false;
+        note.className = "upload-note wait";
+        note.textContent = "Alerts are allowed on this iPad. A grown-up will finish hooking up the send later.";
+      }
+      renderAlerts();
+      updateAppBadge();
+    } catch (err) {
+      if (note) {
+        note.hidden = false;
+        note.className = "upload-note wait";
+        note.textContent = "I couldn’t turn on alerts this time. We can try again later.";
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function ensureSubscription() {
+    if (Notification.permission !== "granted") return;
+    if (!("serviceWorker" in navigator) || !window.PushManager) return;
+    const cfg = notificationConfig();
+    if (!cfg.vapidPublicKey || !cfg.url || !cfg.token) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey),
+        });
+      }
+      await postBackend({
+        action: "subscribe",
+        token: cfg.token,
+        subscription: sub.toJSON(),
+      });
+    } catch (err) {
+      /* retry on a later launch */
+    }
   }
 
   function escapeHtml(str) {
@@ -260,16 +435,42 @@
 
   function openDB() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      const req = indexedDB.open(DB_NAME, DB_VER);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains("photos")) {
           db.createObjectStore("photos", { keyPath: "id" });
         }
+        if (!db.objectStoreNames.contains("appState")) {
+          db.createObjectStore("appState", { keyPath: "key" });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+  }
+
+  async function syncStateToIdb() {
+    try {
+      const db = await openDB();
+      await new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains("appState")) {
+          resolve();
+          return;
+        }
+        const tx = db.transaction("appState", "readwrite");
+        tx.objectStore("appState").put({
+          key: "progress",
+          completed: (state && state.completed) || {},
+          updatedAt: new Date().toISOString(),
+        });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    } catch (err) {
+      /* IDB sync is best-effort */
+    }
   }
 
   async function savePhotoRecord(record) {
@@ -546,6 +747,8 @@
     $("pinInput").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") handlePin();
     });
+    const alertsBtn = $("alertsBtn");
+    if (alertsBtn) alertsBtn.addEventListener("click", enableAlerts);
   }
 
   async function loadData() {
@@ -592,8 +795,32 @@
     if (demoMode === "snap") {
       setupDemoSnap();
     }
-    if ("serviceWorker" in navigator && !demoMode) {
-      navigator.serviceWorker.register("./sw.js").catch(() => {});
+    if ("serviceWorker" in navigator && !params.get("shot")) {
+      navigator.serviceWorker.register("./sw.js").then(() => {
+        if (!demoMode) ensureSubscription();
+      }).catch(() => {});
+    }
+    if (params.get("test") === "1") {
+      window.__spaceQuestTest = {
+        badgeCount: () => badgeCountForToday(),
+        openQuestPending: () => openQuestPending(),
+        isStandalone: () => isStandalone(),
+        alertsVisible: () => Boolean($("alertsCard") && !$("alertsCard").hidden),
+        today: () => effectiveToday(),
+        hasVapid: () => Boolean(notificationConfig().vapidPublicKey),
+        hasSetAppBadge: "setAppBadge" in navigator,
+        hasPushManager: Boolean(window.PushManager),
+      };
+      document.body.dataset.test = JSON.stringify({
+        badgeCount: window.__spaceQuestTest.badgeCount(),
+        openQuestPending: window.__spaceQuestTest.openQuestPending(),
+        isStandalone: window.__spaceQuestTest.isStandalone(),
+        alertsVisible: window.__spaceQuestTest.alertsVisible(),
+        today: window.__spaceQuestTest.today(),
+        hasVapid: window.__spaceQuestTest.hasVapid(),
+        hasSetAppBadge: window.__spaceQuestTest.hasSetAppBadge,
+        hasPushManager: window.__spaceQuestTest.hasPushManager,
+      });
     }
     flushQueue();
   }
