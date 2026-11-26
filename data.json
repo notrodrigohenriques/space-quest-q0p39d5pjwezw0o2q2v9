@@ -269,7 +269,16 @@
       "color": "#7dffc4"
     }
   ],
-  "quests": [],
+  "quests": [
+    {
+      "date": "2026-11-26",
+      "status": "approved",
+      "title": "This Weekend",
+      "prompt": "Write one page about what you want to do this weekend \u2014 or keep going with the planets story if you'd rather. You can start by writing today's date as neatly as your best date lines.",
+      "powerUp": "Leave a finger-width space between your words.",
+      "powerUpName": "Neat Spacer"
+    }
+  ],
   "progress": {
     "xp": 0,
     "stars": 0,
