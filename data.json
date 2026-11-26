@@ -278,8 +278,8 @@
     "completed": {}
   },
   "upload": {
-    "url": "",
-    "token": ""
+    "url": "https://script.google.com/macros/s/AKfycbxeuoJWyjGgShME-iGTsKhbVuyFWUOjOiNDxf9x2XiKK1VWwMZGCx6zbQmRodNFQ8l0XA/exec",
+    "token": "90b4ac826ec195cfccf81558b95ac3aca355924a7ba22dde"
   },
   "demo": {
     "note": "Sample data for previews only. Never shown unless the URL has ?demo=. Not a real approved quest.",
@@ -310,7 +310,7 @@
   },
   "notifications": {
     "vapidPublicKey": "BOdYWwM_GmPOvaGykm5aFVDKcJJ2X4inMYIISM_ruDAsD3Jyc4m6308oX5o6p4raUZBa8KfLXzxPhScGa1nlAb4",
-    "url": "",
-    "subscribeToken": ""
+    "url": "https://script.google.com/macros/s/AKfycbxeuoJWyjGgShME-iGTsKhbVuyFWUOjOiNDxf9x2XiKK1VWwMZGCx6zbQmRodNFQ8l0XA/exec",
+    "subscribeToken": "3f55c0876d0a64f5093c546086878fc07ca2bc62323031e0"
   }
 }
