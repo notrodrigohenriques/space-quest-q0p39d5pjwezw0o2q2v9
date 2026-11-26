@@ -11,11 +11,11 @@
     "days": 28
   },
   "strengths": [
-    "You invent amazing stories \u2014 planets, dragons, and the monkey adventures!",
-    "Your letters, like the one to Grandma, feel warm and clear.",
-    "You stick with one idea, and you use big words like portal and orbit."
+    "You invent amazing stories \u2014 The Boom continues your planets adventure!",
+    "You left clear spaces between your words, like in \u201cThe crash caused a boom.\u201d",
+    "Your letters, like the one to Grandma, feel warm and clear."
   ],
-  "levelUpNext": "Leave a little finger space between your words so every sentence is easy to read.",
+  "levelUpNext": "Make tall letters like t and h stand a little taller than short ones like a and e.",
   "levels": [
     {
       "level": 1,
@@ -98,7 +98,9 @@
       "emoji": "\ud83c\udf1f"
     }
   ],
-  "awardedBadges": [],
+  "awardedBadges": [
+    "page-snapper"
+  ],
   "planets": [
     {
       "id": 1,
@@ -280,11 +282,17 @@
     }
   ],
   "progress": {
-    "xp": 0,
-    "stars": 0,
-    "streak": 0,
-    "lastCompletedDate": null,
-    "completed": {}
+    "xp": 10,
+    "stars": 3,
+    "streak": 1,
+    "lastCompletedDate": "2026-11-26",
+    "completed": {
+      "2026-11-26": {
+        "stars": 3,
+        "xp": 10,
+        "source": "photo"
+      }
+    }
   },
   "upload": {
     "url": "https://script.google.com/macros/s/AKfycbxeuoJWyjGgShME-iGTsKhbVuyFWUOjOiNDxf9x2XiKK1VWwMZGCx6zbQmRodNFQ8l0XA/exec",
