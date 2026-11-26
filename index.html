@@ -64,6 +64,7 @@
       <h2>Mission alerts</h2>
       <p class="muted" id="alertsHelp">I can ping you when a new writing mission is ready.</p>
       <button type="button" class="btn primary block" id="alertsBtn">Turn on mission alerts</button>
+      <p class="alerts-on" id="alertsOn" hidden>Mission alerts on ✅</p>
       <p class="upload-note" id="alertsNote" hidden></p>
     </section>
 
@@ -95,7 +96,8 @@
   </main>
 
   <footer class="foot">
-    <button type="button" class="linkish" id="grownupsBtn">Grown-ups</button>
+    <button type="button" class="btn ghost grownups-btn" id="grownupsBtn">Grown-ups</button>
+    <p class="grownups-hint">Tap here to set a PIN and mark a quest done if the camera can’t be used.</p>
     <p class="fineprint">First name only · writing quest · offline ready</p>
   </footer>
 
@@ -128,7 +130,7 @@
     <div class="modal narrow">
       <h2 id="pinTitle">Grown-ups</h2>
       <p class="muted" id="pinHelp">Enter the 4-digit PIN to mark a quest done if the camera cannot be used.</p>
-      <input id="pinInput" type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••">
+      <input id="pinInput" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="••••">
       <p class="error" id="pinError" hidden></p>
       <div class="row">
         <button type="button" class="btn ghost" id="pinCancel">Close</button>

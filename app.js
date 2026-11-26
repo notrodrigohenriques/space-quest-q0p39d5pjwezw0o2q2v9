@@ -14,6 +14,7 @@
   let data = null;
   let state = null;
   let pendingBlob = null;
+  let pinUiMode = "enter";
 
   function todayISO(override) {
     if (override) return override;
@@ -298,17 +299,56 @@
     return out;
   }
 
-  function postBackend(payload) {
+  async function postBackend(payload) {
     const { url } = notificationConfig();
-    if (!url) return Promise.resolve({ ok: false, error: "not-configured" });
-    return fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-    }).then((res) => res.json().catch(() => ({ ok: res.ok })));
+    if (!url) return { ok: false, error: "not-configured" };
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+        redirect: "follow",
+      });
+      // Apps Script often 302s to googleusercontent without CORS, so the
+      // browser may give an opaque response or reject even when the server saved.
+      if (res.type === "opaque" || res.type === "opaqueredirect") {
+        return { ok: false, opaque: true };
+      }
+      const json = await res.json().catch(() => null);
+      if (json && typeof json === "object") return json;
+      return { ok: Boolean(res.ok) };
+    } catch (err) {
+      return { ok: false, opaque: true, error: "network" };
+    }
   }
 
-  function renderAlerts() {
+  async function getExistingSubscription() {
+    try {
+      if (!("serviceWorker" in navigator) || !window.PushManager) return null;
+      const reg = await navigator.serviceWorker.ready;
+      return await reg.pushManager.getSubscription();
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function setAlertsOnState() {
+    const card = $("alertsCard");
+    const btn = $("alertsBtn");
+    const help = $("alertsHelp");
+    const note = $("alertsNote");
+    const onEl = $("alertsOn");
+    if (card) {
+      card.hidden = false;
+      card.classList.add("is-on");
+    }
+    if (btn) btn.hidden = true;
+    if (help) help.hidden = true;
+    if (note) note.hidden = true;
+    if (onEl) onEl.hidden = false;
+  }
+
+  async function renderAlerts() {
     const card = $("alertsCard");
     if (!card) return;
     const supported = "Notification" in window && "serviceWorker" in navigator &&
@@ -322,26 +362,28 @@
     const btn = $("alertsBtn");
     const help = $("alertsHelp");
     const note = $("alertsNote");
-    const granted = Notification.permission === "granted";
-    const denied = Notification.permission === "denied";
-    const cfg = notificationConfig();
+    const onEl = $("alertsOn");
+    const granted = typeof Notification !== "undefined" && Notification.permission === "granted";
+    const denied = typeof Notification !== "undefined" && Notification.permission === "denied";
+    const sub = granted ? await getExistingSubscription() : null;
+    if (granted && sub) {
+      setAlertsOnState();
+      return;
+    }
+    card.classList.remove("is-on");
+    if (onEl) onEl.hidden = true;
+    if (help) help.hidden = false;
     if (granted) {
-      btn.hidden = true;
-      help.textContent = "Mission alerts are on! I’ll tell you when a new quest is ready.";
-      if (note) {
-        note.hidden = !cfg.url;
-        if (!cfg.url) {
-          note.className = "upload-note wait";
-          note.textContent = "A grown-up will finish hooking up the send later.";
-        } else {
-          note.hidden = true;
-        }
-      }
+      // Already allowed, but no subscription yet — don't flash the Turn on button.
+      if (btn) btn.hidden = true;
+      help.textContent = "Finishing mission alerts…";
+      if (note) note.hidden = true;
     } else if (denied) {
-      btn.hidden = true;
+      if (btn) btn.hidden = true;
       help.textContent = "That’s okay. You can turn on alerts later in iPad Settings if you change your mind.";
+      if (note) note.hidden = true;
     } else {
-      btn.hidden = false;
+      if (btn) btn.hidden = false;
       help.textContent = "I can ping you when a new writing mission is ready.";
       if (note) note.hidden = true;
     }
@@ -356,41 +398,40 @@
       if (!("Notification" in window)) return;
       const perm = await Notification.requestPermission();
       if (perm !== "granted") {
-        renderAlerts();
+        await renderAlerts();
         return;
       }
       await navigator.serviceWorker.register("./sw.js");
       const reg = await navigator.serviceWorker.ready;
       const cfg = notificationConfig();
       if (!cfg.vapidPublicKey) throw new Error("no-vapid");
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey),
-      });
-      if (cfg.url && cfg.token) {
-        const result = await postBackend({
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey),
+        });
+      }
+      if (cfg.url && cfg.token && sub) {
+        await postBackend({
           action: "subscribe",
           token: cfg.token,
           subscription: sub.toJSON(),
         });
-        if (note) {
-          note.hidden = false;
-          if (result && result.ok) {
-            note.className = "upload-note ok";
-            note.textContent = "Mission alerts are on! 🚀";
-          } else {
-            note.className = "upload-note wait";
-            note.textContent = "Saved on this iPad. We’ll hook up the send when a grown-up finishes setup.";
-          }
-        }
-      } else if (note) {
-        note.hidden = false;
-        note.className = "upload-note wait";
-        note.textContent = "Alerts are allowed on this iPad. A grown-up will finish hooking up the send later.";
       }
-      renderAlerts();
-      updateAppBadge();
+      if (Notification.permission === "granted" && sub) {
+        setAlertsOnState();
+        updateAppBadge();
+        return;
+      }
+      await renderAlerts();
     } catch (err) {
+      const sub = await getExistingSubscription();
+      if (typeof Notification !== "undefined" && Notification.permission === "granted" && sub) {
+        setAlertsOnState();
+        updateAppBadge();
+        return;
+      }
       if (note) {
         note.hidden = false;
         note.className = "upload-note wait";
@@ -402,27 +443,32 @@
   }
 
   async function ensureSubscription() {
-    if (Notification.permission !== "granted") return;
+    if (!("Notification" in window) || Notification.permission !== "granted") {
+      await renderAlerts();
+      return;
+    }
     if (!("serviceWorker" in navigator) || !window.PushManager) return;
     const cfg = notificationConfig();
-    if (!cfg.vapidPublicKey || !cfg.url || !cfg.token) return;
     try {
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
+      if (!sub && cfg.vapidPublicKey) {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey),
         });
       }
-      await postBackend({
-        action: "subscribe",
-        token: cfg.token,
-        subscription: sub.toJSON(),
-      });
+      if (sub && cfg.url && cfg.token) {
+        await postBackend({
+          action: "subscribe",
+          token: cfg.token,
+          subscription: sub.toJSON(),
+        });
+      }
     } catch (err) {
       /* retry on a later launch */
     }
+    await renderAlerts();
   }
 
   function escapeHtml(str) {
@@ -689,42 +735,96 @@
     }
   }
 
-  function openPinFlow() {
-    const hasPin = Boolean(state.pin);
-    $("pinTitle").textContent = hasPin ? "Grown-ups" : "Set a grown-up PIN";
-    $("pinHelp").textContent = hasPin
-      ? "Enter the 4-digit PIN to mark today’s quest done if the camera cannot be used."
-      : "Choose a 4-digit PIN. It stays on this iPad only. Use it if the camera cannot snap a page.";
-    $("pinInput").value = "";
-    $("pinError").hidden = true;
+  function openPinFlow(ev) {
+    if (ev) ev.preventDefault();
+    pinUiMode = state.pin ? "enter" : "set";
+    showPinDialog();
+  }
+
+  function showPinDialog() {
+    const input = $("pinInput");
+    const ok = $("pinOk");
+    const help = $("pinHelp");
+    const title = $("pinTitle");
+    const err = $("pinError");
+    if (err) {
+      err.hidden = true;
+      err.textContent = "";
+    }
+    if (pinUiMode === "saved") {
+      title.textContent = "PIN saved";
+      help.textContent = "This PIN stays on this iPad only. Open Grown-ups again if you need to mark a quest done without the camera.";
+      input.value = "";
+      input.hidden = true;
+      ok.textContent = "OK";
+    } else {
+      input.hidden = false;
+      input.value = "";
+      ok.textContent = "Continue";
+      if (pinUiMode === "enter") {
+        title.textContent = "Grown-ups";
+        help.textContent = "Enter the 4-digit PIN to mark today’s quest done if the camera cannot be used.";
+      } else {
+        title.textContent = "Set a grown-up PIN";
+        help.textContent = "Choose a 4-digit PIN. It stays on this iPad only. Use it if the camera cannot snap a page.";
+      }
+    }
     $("pinOverlay").hidden = false;
-    $("pinInput").focus();
+    if (pinUiMode !== "saved") {
+      setTimeout(() => {
+        try { input.focus({ preventScroll: true }); } catch (err) { input.focus(); }
+      }, 150);
+    }
   }
 
   function handlePin() {
+    const err = $("pinError");
+    if (pinUiMode === "saved") {
+      $("pinOverlay").hidden = true;
+      return;
+    }
     const value = ($("pinInput").value || "").trim();
-    $("pinError").hidden = true;
+    if (err) err.hidden = true;
     if (!/^\d{4}$/.test(value)) {
-      $("pinError").hidden = false;
-      $("pinError").textContent = "Please use exactly 4 digits.";
+      if (err) {
+        err.hidden = false;
+        err.textContent = "Please use exactly 4 digits.";
+      }
       return;
     }
     if (!state.pin) {
       state.pin = value;
       saveLocalState();
-      $("pinOverlay").hidden = true;
+      pinUiMode = "saved";
+      showPinDialog();
       return;
     }
     if (value !== state.pin) {
-      $("pinError").hidden = false;
-      $("pinError").textContent = "That PIN does not match.";
+      if (err) {
+        err.hidden = false;
+        err.textContent = "That PIN does not match.";
+      }
+      return;
+    }
+    const today = effectiveToday();
+    const quest = approvedQuestFor(today);
+    if (!quest) {
+      if (err) {
+        err.hidden = false;
+        err.textContent = "There’s no approved quest to mark done today.";
+      }
+      $("pinInput").value = "";
+      return;
+    }
+    if (isCompleted(today)) {
+      if (err) {
+        err.hidden = false;
+        err.textContent = "Today’s quest is already marked done.";
+      }
+      $("pinInput").value = "";
       return;
     }
     $("pinOverlay").hidden = true;
-    const today = effectiveToday();
-    const quest = approvedQuestFor(today);
-    if (!quest) return;
-    if (isCompleted(today)) return;
     completeQuest(today, "parent-pin");
     playCelebration(today);
   }
@@ -798,7 +898,8 @@
     if ("serviceWorker" in navigator && !params.get("shot")) {
       navigator.serviceWorker.register("./sw.js").then(() => {
         if (!demoMode) ensureSubscription();
-      }).catch(() => {});
+        else renderAlerts();
+      }).catch(() => { renderAlerts(); });
     }
     if (params.get("test") === "1") {
       window.__spaceQuestTest = {
@@ -806,16 +907,28 @@
         openQuestPending: () => openQuestPending(),
         isStandalone: () => isStandalone(),
         alertsVisible: () => Boolean($("alertsCard") && !$("alertsCard").hidden),
+        alertsButtonVisible: () => Boolean($("alertsBtn") && !$("alertsBtn").hidden && $("alertsCard") && !$("alertsCard").hidden),
+        alertsOnVisible: () => Boolean($("alertsOn") && !$("alertsOn").hidden),
+        pinOverlayVisible: () => Boolean($("pinOverlay") && !$("pinOverlay").hidden),
+        pinTitle: () => $("pinTitle") ? $("pinTitle").textContent : "",
+        pinHelp: () => $("pinHelp") ? $("pinHelp").textContent : "",
+        pinError: () => ($("pinError") && !$("pinError").hidden) ? $("pinError").textContent : "",
+        pinInputHidden: () => Boolean($("pinInput") && $("pinInput").hidden),
+        hasPin: () => Boolean(state.pin),
         today: () => effectiveToday(),
         hasVapid: () => Boolean(notificationConfig().vapidPublicKey),
         hasSetAppBadge: "setAppBadge" in navigator,
         hasPushManager: Boolean(window.PushManager),
+        setAlertsOnState,
+        renderAlerts,
       };
       document.body.dataset.test = JSON.stringify({
         badgeCount: window.__spaceQuestTest.badgeCount(),
         openQuestPending: window.__spaceQuestTest.openQuestPending(),
         isStandalone: window.__spaceQuestTest.isStandalone(),
         alertsVisible: window.__spaceQuestTest.alertsVisible(),
+        alertsButtonVisible: window.__spaceQuestTest.alertsButtonVisible(),
+        alertsOnVisible: window.__spaceQuestTest.alertsOnVisible(),
         today: window.__spaceQuestTest.today(),
         hasVapid: window.__spaceQuestTest.hasVapid(),
         hasSetAppBadge: window.__spaceQuestTest.hasSetAppBadge,

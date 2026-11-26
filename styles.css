@@ -33,6 +33,7 @@ body {
 }
 
 button, input { font: inherit; }
+button { touch-action: manipulation; -webkit-tap-highlight-color: rgba(255, 209, 102, 0.28); }
 
 .sky { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
 .stars {
@@ -226,11 +227,16 @@ h2 { margin: 0 0 12px; font-size: 26px; letter-spacing: -0.02em; }
 .badge .bname { display: block; font-weight: 650; font-size: 18px; }
 .badge .bhint { display: block; color: var(--ink-dim); font-size: 14px; margin-top: 4px; }
 
-.foot { max-width: 880px; margin: 28px auto 0; text-align: center; }
-.linkish {
-  background: none; border: 0; color: var(--ink-dim); text-decoration: underline;
-  text-underline-offset: 3px; cursor: pointer; font-size: 16px; min-height: 44px;
+.foot { max-width: 880px; margin: 28px auto 0; text-align: center; padding-bottom: 8px; }
+.grownups-btn {
+  min-width: 200px;
+  margin: 0 auto;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
+.grownups-hint { color: var(--ink-dim); font-size: 16px; margin: 10px 0 0; }
 .fineprint { color: rgba(255,246,229,0.35); font-size: 14px; margin: 6px 0 0; }
 .install-tip {
   background: rgba(126, 200, 255, 0.12);
@@ -243,14 +249,19 @@ h2 { margin: 0 0 12px; font-size: 26px; letter-spacing: -0.02em; }
 }
 
 .overlay {
-  position: fixed; inset: 0; z-index: 20;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 20;
   background: rgba(5, 8, 24, 0.72);
   display: grid; place-items: center;
-  padding: 24px;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-left, 0px));
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 .overlay[hidden] { display: none !important; }
 .modal {
+  position: relative; z-index: 1;
   width: min(640px, 100%);
   background: var(--navy-2);
   border: 1px solid var(--stroke);
@@ -270,6 +281,8 @@ h2 { margin: 0 0 12px; font-size: 26px; letter-spacing: -0.02em; }
   font-size: 32px; padding: 12px; border-radius: 16px;
   border: 1px solid var(--stroke); background: rgba(0,0,0,.25); color: var(--ink);
   margin: 12px 0;
+  -webkit-text-security: disc;
+  text-security: disc;
 }
 .error { color: #ff9b9b; margin: 0 0 8px; font-size: 16px; }
 
@@ -325,3 +338,11 @@ body.shot-badges .foot { display: none !important; }
 .alerts-card h2 { margin-bottom: 8px; }
 .alerts-card .muted { margin: 0 auto 16px; max-width: 32ch; }
 .alerts-card .btn { margin-top: 4px; }
+.alerts-card.is-on { padding: 14px 20px; }
+.alerts-card.is-on h2 { display: none; }
+.alerts-on {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--mint);
+}
