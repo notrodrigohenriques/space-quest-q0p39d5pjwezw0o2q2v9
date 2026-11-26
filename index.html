@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e2a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Space Quest">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Ragnar's Space Quest</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./fonts/fredoka.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true">
+    <div class="stars stars-a"></div>
+    <div class="stars stars-b"></div>
+    <div class="nebula"></div>
+  </div>
+
+  <header class="top">
+    <div class="hello">
+      <div class="mascot" aria-hidden="true">
+        <svg viewBox="0 0 120 120" class="mascot-svg">
+          <ellipse cx="60" cy="104" rx="28" ry="8" fill="rgba(0,0,0,.25)"/>
+          <circle cx="60" cy="52" r="30" fill="#7ed957"/>
+          <ellipse cx="60" cy="62" rx="26" ry="22" fill="#8ee066"/>
+          <circle cx="60" cy="36" r="22" fill="#7ed957"/>
+          <ellipse cx="60" cy="28" rx="20" ry="10" fill="#d9f0ff" opacity=".9"/>
+          <path d="M40 30 Q60 8 80 30" fill="none" stroke="#cfefff" stroke-width="6" stroke-linecap="round"/>
+          <rect x="38" y="22" width="44" height="28" rx="12" fill="#c8ecff" stroke="#3a4a6a" stroke-width="3"/>
+          <circle cx="52" cy="36" r="7" fill="#1b2a4a"/>
+          <circle cx="68" cy="36" r="7" fill="#1b2a4a"/>
+          <circle cx="54" cy="34" r="2" fill="#fff"/>
+          <circle cx="70" cy="34" r="2" fill="#fff"/>
+          <path d="M54 46 Q60 50 66 46" fill="none" stroke="#2d5a28" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M32 44 L18 38 L28 52 Z" fill="#6ec94d"/>
+          <path d="M88 44 L102 38 L92 52 Z" fill="#6ec94d"/>
+          <ellipse cx="60" cy="78" rx="18" ry="10" fill="#f4d27a"/>
+          <rect x="48" y="70" width="24" height="10" rx="3" fill="#e9c35a"/>
+          <circle cx="60" cy="78" r="3" fill="#fff" opacity=".7"/>
+        </svg>
+      </div>
+      <div>
+        <p class="greet" id="greet">Hi, Ragnar!</p>
+        <h1>Space Quest</h1>
+      </div>
+    </div>
+    <div class="hud" id="hud"></div>
+  </header>
+
+  <main>
+    <p class="install-tip" id="installTip" hidden>
+      Grown-ups: on this iPad, tap the Share button, then <strong>Add to Home Screen</strong> so Space Quest has its own icon.
+    </p>
+
+    <section class="card quest-card" id="questCard"></section>
+
+    <section class="split">
+      <article class="card soft">
+        <h2>You’re great at</h2>
+        <ul class="strengths" id="strengths"></ul>
+      </article>
+      <article class="card soft levelup-card">
+        <h2>Level up next</h2>
+        <p class="levelup" id="levelUp"></p>
+      </article>
+    </section>
+
+    <section class="card map-card">
+      <div class="section-head">
+        <h2>Voyage map</h2>
+        <p class="muted" id="mapCaption">Each day is a new planet. Finish a page to light it up.</p>
+      </div>
+      <ol class="planet-map" id="planetMap"></ol>
+    </section>
+
+    <section class="card">
+      <h2>Badges</h2>
+      <ul class="badges" id="badges"></ul>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <button type="button" class="linkish" id="grownupsBtn">Grown-ups</button>
+    <p class="fineprint">First name only · writing quest · offline ready</p>
+  </footer>
+
+  <input id="pagePhoto" type="file" accept="image/*" capture="environment" hidden>
+
+  <div class="overlay" id="previewOverlay" hidden>
+    <div class="modal">
+      <h2>Does this look good?</h2>
+      <img id="previewImage" alt="Your journal page">
+      <p class="muted">If the writing is easy to see, you’re ready.</p>
+      <div class="row">
+        <button type="button" class="btn ghost" id="retakeBtn">Try again</button>
+        <button type="button" class="btn primary" id="confirmBtn">Looks good!</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay cele" id="celeOverlay" hidden>
+    <div class="burst" id="burst" aria-hidden="true"></div>
+    <div class="cele-card">
+      <p class="cele-kicker">Mission complete</p>
+      <h2 id="celeTitle">You did it!</h2>
+      <p id="celeDetail"></p>
+      <div class="cele-awards" id="celeAwards"></div>
+      <button type="button" class="btn primary" id="celeDone">Awesome!</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="pinOverlay" hidden>
+    <div class="modal narrow">
+      <h2 id="pinTitle">Grown-ups</h2>
+      <p class="muted" id="pinHelp">Enter the 4-digit PIN to mark a quest done if the camera cannot be used.</p>
+      <input id="pinInput" type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••">
+      <p class="error" id="pinError" hidden></p>
+      <div class="row">
+        <button type="button" class="btn ghost" id="pinCancel">Close</button>
+        <button type="button" class="btn primary" id="pinOk">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>

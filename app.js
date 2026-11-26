@@ -1,0 +1,615 @@
+/* Ragnar's Space Quest — child-facing only. Draft quests must never render. */
+(() => {
+  const TZ = "America/Regina";
+  const STORE = "ragnar-quest-state-v1";
+  const DB_NAME = "ragnar-quest";
+  const XP_PER_PAGE = 10;
+  const STARS_PER_PAGE = 3;
+
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const demoMode = params.get("demo");
+
+  let data = null;
+  let state = null;
+  let pendingBlob = null;
+
+  function todayISO(override) {
+    if (override) return override;
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: data?.timezone || TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+
+  function friendlyDate(iso) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d, 18));
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: TZ,
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    }).format(dt);
+  }
+
+  function loadLocalState() {
+    try {
+      return JSON.parse(localStorage.getItem(STORE) || "null") || {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveLocalState() {
+    localStorage.setItem(STORE, JSON.stringify(state));
+  }
+
+  function emptyProgress() {
+    return { xp: 0, stars: 0, streak: 0, lastCompletedDate: null, completed: {}, awardedBadges: [] };
+  }
+
+  function mergeProgress(server, local, demo) {
+    const s = server || emptyProgress();
+    const l = local || {};
+    const out = {
+      xp: Math.max(s.xp || 0, l.xp || 0),
+      stars: Math.max(s.stars || 0, l.stars || 0),
+      streak: Math.max(s.streak || 0, l.streak || 0),
+      lastCompletedDate: laterDate(s.lastCompletedDate, l.lastCompletedDate),
+      completed: { ...(s.completed || {}), ...(l.completed || {}) },
+      awardedBadges: Array.from(new Set([...(s.awardedBadges || data.awardedBadges || []), ...(l.awardedBadges || [])])),
+      pin: l.pin || null,
+    };
+    if (demo && data.demo) {
+      Object.assign(out.completed, data.demo.completed || {});
+      out.awardedBadges = Array.from(new Set([...out.awardedBadges, ...(data.demo.awardedBadges || [])]));
+      const n = Object.keys(out.completed).length;
+      out.xp = Math.max(out.xp, n * XP_PER_PAGE);
+      out.stars = Math.max(out.stars, n * STARS_PER_PAGE);
+      out.streak = Math.max(out.streak, Math.min(n, 2));
+    }
+    return out;
+  }
+
+  function laterDate(a, b) {
+    if (!a) return b || null;
+    if (!b) return a;
+    return a >= b ? a : b;
+  }
+
+  function currentLevel() {
+    const levels = data.levels || [];
+    let found = levels[0] || { level: 1, name: "Space Cadet", xp: 0 };
+    for (const lv of levels) {
+      if ((state.xp || 0) >= lv.xp) found = lv;
+    }
+    const next = levels.find((lv) => lv.xp > found.xp);
+    return { ...found, next };
+  }
+
+  function approvedQuestFor(date) {
+    const list = Array.isArray(data.quests) ? data.quests : [];
+    const found = list.find((q) => q && q.date === date && q.status === "approved" && q.prompt);
+    if (found) return found;
+    if (demoMode && data.demo?.quest && data.demo.quest.status === "approved") {
+      const q = data.demo.quest;
+      if (q.date === date) return q;
+    }
+    return null;
+  }
+
+  function effectiveToday() {
+    if (demoMode && data.demo?.today) return data.demo.today;
+    return todayISO();
+  }
+
+  function isCompleted(date) {
+    return Boolean(state.completed && state.completed[date]);
+  }
+
+  function addDays(iso, n) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() + n);
+    return dt.toISOString().slice(0, 10);
+  }
+
+  function computeStreak(completed, today) {
+    const set = new Set(Object.keys(completed || {}));
+    let start = set.has(today) ? today : addDays(today, -1);
+    if (!set.has(start)) return 0;
+    let n = 0;
+    let cur = start;
+    while (set.has(cur)) {
+      n += 1;
+      cur = addDays(cur, -1);
+    }
+    return n;
+  }
+
+  function maybeAwardBadges(date) {
+    const badges = new Set(state.awardedBadges || []);
+    badges.add("page-snapper");
+    const streak = computeStreak(state.completed, effectiveToday());
+    if (streak >= 3) badges.add("streak-3");
+    if (streak >= 7) badges.add("streak-7");
+    state.awardedBadges = Array.from(badges);
+    state.streak = streak;
+  }
+
+  function renderHud() {
+    const lv = currentLevel();
+    $("hud").innerHTML = `
+      <div class="chip" title="Level"><strong>Lv ${lv.level}</strong> ${escapeHtml(lv.name)}</div>
+      <div class="chip">⭐ <strong>${state.stars || 0}</strong></div>
+      <div class="chip">🔥 <strong>${state.streak || 0}</strong> day streak</div>
+    `;
+  }
+
+  function renderQuest() {
+    const today = effectiveToday();
+    const quest = approvedQuestFor(today);
+    const card = $("questCard");
+    if (!quest) {
+      const start = data.cycle?.start;
+      const beforeStart = start && today < start;
+      card.innerHTML = `
+        <div class="waiting">
+          <p class="kicker">Today’s Quest</p>
+          <h2>${beforeStart ? "Your voyage starts soon" : "A new quest is on its way"}</h2>
+          <p>${beforeStart
+            ? "Your first planet will light up when a quest is ready. Keep your pencil close!"
+            : "When today’s quest is ready, it will appear right here."}</p>
+        </div>`;
+      return;
+    }
+
+    const done = isCompleted(today);
+    const planet = (data.planets || []).find((p) => p.date === today);
+    card.innerHTML = `
+      ${done ? `<div class="done-banner">Mission complete — ${escapeHtml(planet?.name || "today’s planet")} is lit!</div>` : ""}
+      <p class="kicker">Today’s Quest${planet ? " · " + escapeHtml(planet.name) : ""}</p>
+      <h2 class="quest-title">${escapeHtml(quest.title || "Write your page")}</h2>
+      <p class="quest-prompt">${escapeHtml(quest.prompt)}</p>
+      <div class="powerup">
+        <div class="bolt" aria-hidden="true">⚡</div>
+        <p><span class="label">Power-up${quest.powerUpName ? " · " + escapeHtml(quest.powerUpName) : ""}</span>${escapeHtml(quest.powerUp || "")}</p>
+      </div>
+      ${done
+        ? `<p class="muted">You already turned in today’s page. Nice work, explorer.</p>`
+        : `<button type="button" class="btn primary block" id="snapBtn">📸 Snap my page!</button>
+           <p class="upload-note" id="uploadNote"></p>`}
+    `;
+    const snap = $("snapBtn");
+    if (snap) snap.addEventListener("click", () => $("pagePhoto").click());
+  }
+
+  function renderStrengths() {
+    $("strengths").innerHTML = (data.strengths || [])
+      .slice(0, 3)
+      .map((s) => `<li>${escapeHtml(s)}</li>`)
+      .join("");
+    $("levelUp").textContent = data.levelUpNext || "";
+  }
+
+  function renderMap() {
+    const today = effectiveToday();
+    const planets = data.planets || [];
+    $("planetMap").innerHTML = planets.map((p) => {
+      const done = isCompleted(p.date);
+      const locked = p.date > today && !done;
+      const isToday = p.date === today;
+      const cls = ["planet", done ? "done" : "", locked ? "locked" : "", isToday ? "today" : ""]
+        .filter(Boolean).join(" ");
+      const label = locked ? "Not yet" : done ? "Lit!" : isToday ? "Today" : p.name;
+      return `<li class="${cls}">
+        <span class="orb" style="background:${p.color}" title="${escapeHtml(p.name)}">${done ? "★" : isToday ? "🚀" : locked ? "•" : ""}</span>
+        <span class="pname">${escapeHtml(p.name)}</span>
+        <span class="pname muted">${escapeHtml(label)}</span>
+      </li>`;
+    }).join("");
+    const doneCount = planets.filter((p) => isCompleted(p.date)).length;
+    $("mapCaption").textContent = `${doneCount} of ${planets.length} planets lit · Voyage 1`;
+  }
+
+  function renderBadges() {
+    const have = new Set(state.awardedBadges || []);
+    $("badges").innerHTML = (data.badges || []).map((b) => {
+      const on = have.has(b.id);
+      return `<li class="badge ${on ? "" : "locked"}">
+        <span class="emo">${b.emoji || "🏅"}</span>
+        <span class="bname">${escapeHtml(b.name)}</span>
+        <span class="bhint">${on ? "You earned this!" : escapeHtml(b.hint || "")}</span>
+      </li>`;
+    }).join("");
+  }
+
+  function renderAll() {
+    $("greet").textContent = `Hi, ${data.childName || "explorer"}!`;
+    renderHud();
+    renderQuest();
+    renderStrengths();
+    renderMap();
+    renderBadges();
+    maybeShowInstallTip();
+    const shot = params.get("shot");
+    if (shot === "map") document.body.classList.add("shot-map");
+    if (shot === "badges") document.body.classList.add("shot-badges");
+    if (demoMode === "snap") {
+      $("previewImage").src = "./icons/sample-page.jpg";
+      $("previewOverlay").hidden = false;
+    }
+  }
+
+  function maybeShowInstallTip() {
+    const standalone = window.navigator.standalone === true ||
+      window.matchMedia("(display-mode: standalone)").matches;
+    $("installTip").hidden = standalone || Boolean(demoMode);
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("photos")) {
+          db.createObjectStore("photos", { keyPath: "id" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function savePhotoRecord(record) {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction("photos", "readwrite");
+      tx.objectStore("photos").put(record);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+
+  async function pendingUploads() {
+    const db = await openDB();
+    const rows = await new Promise((resolve, reject) => {
+      const tx = db.transaction("photos", "readonly");
+      const r = tx.objectStore("photos").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    });
+    db.close();
+    return rows.filter((row) => row.status === "pending" || row.status === "failed");
+  }
+
+  async function markPhotoStatus(id, status, extra) {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction("photos", "readwrite");
+      const store = tx.objectStore("photos");
+      const g = store.get(id);
+      g.onsuccess = () => {
+        const row = g.result;
+        if (row) store.put({ ...row, status, ...extra });
+      };
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function compressImage(file, maxEdge = 2000, quality = 0.82) {
+    const bitmap = await createImageBitmap(file);
+    let { width, height } = bitmap;
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    bitmap.close();
+    return blob || file;
+  }
+
+  function showPreview(url) {
+    $("previewImage").src = url;
+    $("previewOverlay").hidden = false;
+  }
+
+  function hidePreview() {
+    $("previewOverlay").hidden = true;
+    $("previewImage").src = "";
+    pendingBlob = null;
+  }
+
+  async function onPhotoChosen(file) {
+    if (!file) return;
+    pendingBlob = await compressImage(file);
+    const url = URL.createObjectURL(pendingBlob);
+    showPreview(url);
+  }
+
+  async function confirmPhoto() {
+    if (!pendingBlob) return;
+    const today = effectiveToday();
+    const quest = approvedQuestFor(today);
+    if (!quest) return;
+    $("confirmBtn").disabled = true;
+    const id = `${today}-${Date.now()}`;
+    const record = {
+      id,
+      date: today,
+      createdAt: new Date().toISOString(),
+      type: pendingBlob.type || "image/jpeg",
+      blob: pendingBlob,
+      status: "pending",
+    };
+    await savePhotoRecord(record);
+    completeQuest(today, "photo");
+    hidePreview();
+    $("confirmBtn").disabled = false;
+    playCelebration(today);
+    uploadWithRetry(record);
+  }
+
+  function completeQuest(date, source) {
+    if (isCompleted(date)) {
+      maybeAwardBadges(date);
+      saveLocalState();
+      renderAll();
+      return;
+    }
+    state.completed[date] = { stars: STARS_PER_PAGE, xp: XP_PER_PAGE, source, at: new Date().toISOString() };
+    state.xp = (state.xp || 0) + XP_PER_PAGE;
+    state.stars = (state.stars || 0) + STARS_PER_PAGE;
+    state.lastCompletedDate = date;
+    maybeAwardBadges(date);
+    saveLocalState();
+    renderAll();
+  }
+
+  function playCelebration(date) {
+    const planet = (data.planets || []).find((p) => p.date === date);
+    const lv = currentLevel();
+    $("celeTitle").textContent = "You did it!";
+    $("celeDetail").textContent = planet
+      ? `${planet.name} is lit. Your page is on its way to the family journal.`
+      : "Your page is on its way to the family journal.";
+    $("celeAwards").innerHTML = `
+      <span class="award-pill">⭐ +${STARS_PER_PAGE} stars</span>
+      <span class="award-pill">✨ +${XP_PER_PAGE} XP</span>
+      <span class="award-pill">Lv ${lv.level} ${escapeHtml(lv.name)}</span>
+    `;
+    const burst = $("burst");
+    burst.innerHTML = "";
+    const colors = ["#ffd166", "#ff7a59", "#7dffc4", "#7ec8ff", "#c4b5fd", "#fff"];
+    for (let i = 0; i < 36; i += 1) {
+      const spark = document.createElement("span");
+      spark.className = "spark";
+      const angle = (Math.PI * 2 * i) / 36;
+      const dist = 140 + (i % 5) * 40;
+      spark.style.left = "50%";
+      spark.style.top = "40%";
+      spark.style.background = colors[i % colors.length];
+      spark.style.setProperty("--x", `${Math.cos(angle) * dist}px`);
+      spark.style.setProperty("--y", `${Math.sin(angle) * dist}px`);
+      spark.style.animationDelay = `${(i % 8) * 0.03}s`;
+      burst.appendChild(spark);
+    }
+    $("celeOverlay").hidden = false;
+  }
+
+  async function blobToBase64(blob) {
+    const dataUrl = await readFile(blob);
+    return String(dataUrl).split(",")[1] || "";
+  }
+
+  function uploadConfig(date) {
+    const url = (data.upload && data.upload.url) || "";
+    const quest = approvedQuestFor(date);
+    const token = (quest && quest.uploadToken) || (data.upload && data.upload.token) || "";
+    return { url, token };
+  }
+
+  async function uploadWithRetry(record) {
+    const note = $("uploadNote");
+    const { url, token } = uploadConfig(record.date);
+    if (!url || !token) {
+      if (note) {
+        note.className = "upload-note wait";
+        note.textContent = "Saved on this iPad. A grown-up will hook up the family journal send later.";
+      }
+      return;
+    }
+    if (note) {
+      note.className = "upload-note wait";
+      note.textContent = "Sending your page to the family journal…";
+    }
+    try {
+      const imageBase64 = await blobToBase64(record.blob);
+      const body = JSON.stringify({
+        token,
+        date: record.date,
+        filename: `${record.date}-ragnar-page.jpg`,
+        mime: "image/jpeg",
+        imageBase64,
+      });
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body,
+      });
+      if (!res.ok) throw new Error("upload-failed");
+      const json = await res.json().catch(() => ({}));
+      if (json && json.ok === false) throw new Error(json.error || "upload-failed");
+      await markPhotoStatus(record.id, "uploaded", { uploadedAt: new Date().toISOString() });
+      if (note) {
+        note.className = "upload-note ok";
+        note.textContent = "Your page is in the family journal!";
+      }
+    } catch (err) {
+      await markPhotoStatus(record.id, "failed");
+      if (note) {
+        note.className = "upload-note wait";
+        note.textContent = "Saved on this iPad. We’ll send it when the internet is back.";
+      }
+    }
+  }
+
+  async function flushQueue() {
+    const rows = await pendingUploads().catch(() => []);
+    for (const row of rows) {
+      await uploadWithRetry(row);
+    }
+  }
+
+  function openPinFlow() {
+    const hasPin = Boolean(state.pin);
+    $("pinTitle").textContent = hasPin ? "Grown-ups" : "Set a grown-up PIN";
+    $("pinHelp").textContent = hasPin
+      ? "Enter the 4-digit PIN to mark today’s quest done if the camera cannot be used."
+      : "Choose a 4-digit PIN. It stays on this iPad only. Use it if the camera cannot snap a page.";
+    $("pinInput").value = "";
+    $("pinError").hidden = true;
+    $("pinOverlay").hidden = false;
+    $("pinInput").focus();
+  }
+
+  function handlePin() {
+    const value = ($("pinInput").value || "").trim();
+    $("pinError").hidden = true;
+    if (!/^\d{4}$/.test(value)) {
+      $("pinError").hidden = false;
+      $("pinError").textContent = "Please use exactly 4 digits.";
+      return;
+    }
+    if (!state.pin) {
+      state.pin = value;
+      saveLocalState();
+      $("pinOverlay").hidden = true;
+      return;
+    }
+    if (value !== state.pin) {
+      $("pinError").hidden = false;
+      $("pinError").textContent = "That PIN does not match.";
+      return;
+    }
+    $("pinOverlay").hidden = true;
+    const today = effectiveToday();
+    const quest = approvedQuestFor(today);
+    if (!quest) return;
+    if (isCompleted(today)) return;
+    completeQuest(today, "parent-pin");
+    playCelebration(today);
+  }
+
+  function bind() {
+    $("pagePhoto").addEventListener("change", (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      ev.target.value = "";
+      if (file) onPhotoChosen(file);
+    });
+    $("retakeBtn").addEventListener("click", () => {
+      hidePreview();
+      $("pagePhoto").click();
+    });
+    $("confirmBtn").addEventListener("click", confirmPhoto);
+    $("celeDone").addEventListener("click", () => { $("celeOverlay").hidden = true; });
+    $("grownupsBtn").addEventListener("click", openPinFlow);
+    $("pinCancel").addEventListener("click", () => { $("pinOverlay").hidden = true; });
+    $("pinOk").addEventListener("click", handlePin);
+    $("pinInput").addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") handlePin();
+    });
+  }
+
+  async function loadData() {
+    const res = await fetch("./data.json", { cache: "no-store" });
+    if (!res.ok) throw new Error("data");
+    return res.json();
+  }
+
+  function applyDemoStateTweaks() {
+    if (demoMode === "complete") {
+      const today = effectiveToday();
+      if (!isCompleted(today) && approvedQuestFor(today)) {
+        state.completed[today] = { stars: STARS_PER_PAGE, xp: XP_PER_PAGE, source: "photo" };
+        state.xp = (state.xp || 0) + XP_PER_PAGE;
+        state.stars = (state.stars || 0) + STARS_PER_PAGE;
+        maybeAwardBadges(today);
+      }
+    }
+  }
+
+  async function start() {
+    data = await loadData().catch(() => ({
+      childName: "Ragnar",
+      timezone: TZ,
+      strengths: [],
+      badges: [],
+      planets: [],
+      quests: [],
+      progress: emptyProgress(),
+      levels: [{ level: 1, name: "Space Cadet", xp: 0 }],
+    }));
+    const local = loadLocalState();
+    const demo = Boolean(demoMode);
+    state = mergeProgress(data.progress, local, demo);
+    if (!demo) {
+      /* Production: ignore any leftover demo completions if they were never saved locally. */
+    }
+    applyDemoStateTweaks();
+    bind();
+    renderAll();
+    if (demoMode === "complete") {
+      playCelebration(effectiveToday());
+    }
+    if (demoMode === "snap") {
+      setupDemoSnap();
+    }
+    if ("serviceWorker" in navigator && !demoMode) {
+      navigator.serviceWorker.register("./sw.js").catch(() => {});
+    }
+    flushQueue();
+  }
+
+  async function setupDemoSnap() {
+    const today = effectiveToday();
+    if (!approvedQuestFor(today)) return;
+    try {
+      const res = await fetch("./icons/sample-page.jpg");
+      if (!res.ok) return;
+      pendingBlob = await res.blob();
+      showPreview(URL.createObjectURL(pendingBlob));
+    } catch {
+      /* no sample image */
+    }
+  }
+
+  start();
+})();

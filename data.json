@@ -1,0 +1,311 @@
+{
+  "version": 1,
+  "timezone": "America/Regina",
+  "childName": "Ragnar",
+  "appTitle": "Ragnar's Space Quest",
+  "cycle": {
+    "id": 1,
+    "name": "Voyage 1",
+    "start": "2026-11-26",
+    "end": "2026-12-23",
+    "days": 28
+  },
+  "strengths": [
+    "You invent amazing stories \u2014 planets, dragons, and the monkey adventures!",
+    "Your letters, like the one to Grandma, feel warm and clear.",
+    "You stick with one idea, and you use big words like portal and orbit."
+  ],
+  "levelUpNext": "Leave a little finger space between your words so every sentence is easy to read.",
+  "levels": [
+    {
+      "level": 1,
+      "name": "Space Cadet",
+      "xp": 0
+    },
+    {
+      "level": 2,
+      "name": "Rover Pilot",
+      "xp": 40
+    },
+    {
+      "level": 3,
+      "name": "Orbit Explorer",
+      "xp": 80
+    },
+    {
+      "level": 4,
+      "name": "Star Captain",
+      "xp": 130
+    },
+    {
+      "level": 5,
+      "name": "Galaxy Knight",
+      "xp": 190
+    },
+    {
+      "level": 6,
+      "name": "Homeport Hero",
+      "xp": 260
+    }
+  ],
+  "badges": [
+    {
+      "id": "page-snapper",
+      "name": "Page Snapper",
+      "hint": "Take a photo of a finished page",
+      "emoji": "\ud83d\udcf8"
+    },
+    {
+      "id": "neat-spacer",
+      "name": "Neat Spacer",
+      "hint": "Leave clear finger spaces between words",
+      "emoji": "\u2728"
+    },
+    {
+      "id": "story-builder",
+      "name": "Story Builder",
+      "hint": "Keep a story going, page after page",
+      "emoji": "\ud83d\udcd6"
+    },
+    {
+      "id": "detail-detective",
+      "name": "Detail Detective",
+      "hint": "Add a colour, a sound, or a feeling",
+      "emoji": "\ud83d\udd0d"
+    },
+    {
+      "id": "letter-writer",
+      "name": "Letter Writer",
+      "hint": "Write a letter with a greeting and a closing",
+      "emoji": "\u2709\ufe0f"
+    },
+    {
+      "id": "line-walker",
+      "name": "Line Walker",
+      "hint": "Keep letters sitting on the line",
+      "emoji": "\ud83d\udccf"
+    },
+    {
+      "id": "streak-3",
+      "name": "Comet Streak",
+      "hint": "Write three days in a row",
+      "emoji": "\u2604\ufe0f"
+    },
+    {
+      "id": "streak-7",
+      "name": "Week of Stars",
+      "hint": "Write seven days in a row",
+      "emoji": "\ud83c\udf1f"
+    }
+  ],
+  "awardedBadges": [],
+  "planets": [
+    {
+      "id": 1,
+      "date": "2026-11-26",
+      "name": "Spark",
+      "color": "#ffb347"
+    },
+    {
+      "id": 2,
+      "date": "2026-11-27",
+      "name": "Nimbus",
+      "color": "#9ad7ff"
+    },
+    {
+      "id": 3,
+      "date": "2026-11-28",
+      "name": "Coral Moon",
+      "color": "#ff7a59"
+    },
+    {
+      "id": 4,
+      "date": "2026-11-29",
+      "name": "Zephyr",
+      "color": "#7dffc4"
+    },
+    {
+      "id": 5,
+      "date": "2026-11-30",
+      "name": "Pebble",
+      "color": "#e6d5b8"
+    },
+    {
+      "id": 6,
+      "date": "2026-12-01",
+      "name": "Glowworm",
+      "color": "#c8ff7a"
+    },
+    {
+      "id": 7,
+      "date": "2026-12-02",
+      "name": "Comet Bay",
+      "color": "#7ec8ff"
+    },
+    {
+      "id": 8,
+      "date": "2026-12-03",
+      "name": "Indigo",
+      "color": "#8b7cff"
+    },
+    {
+      "id": 9,
+      "date": "2026-12-04",
+      "name": "Cinder",
+      "color": "#ff8fa3"
+    },
+    {
+      "id": 10,
+      "date": "2026-12-05",
+      "name": "Maple Star",
+      "color": "#ffc14d"
+    },
+    {
+      "id": 11,
+      "date": "2026-12-06",
+      "name": "Lumen",
+      "color": "#fff1a8"
+    },
+    {
+      "id": 12,
+      "date": "2026-12-07",
+      "name": "Orchid-9",
+      "color": "#d9a5ff"
+    },
+    {
+      "id": 13,
+      "date": "2026-12-08",
+      "name": "Pocket Moon",
+      "color": "#b8c4ff"
+    },
+    {
+      "id": 14,
+      "date": "2026-12-09",
+      "name": "Thunder Egg",
+      "color": "#ffd166"
+    },
+    {
+      "id": 15,
+      "date": "2026-12-10",
+      "name": "Silver Drift",
+      "color": "#d9e2ec"
+    },
+    {
+      "id": 16,
+      "date": "2026-12-11",
+      "name": "Cocoa",
+      "color": "#d4a574"
+    },
+    {
+      "id": 17,
+      "date": "2026-12-12",
+      "name": "Nest",
+      "color": "#a8e6a3"
+    },
+    {
+      "id": 18,
+      "date": "2026-12-13",
+      "name": "Harbor-4",
+      "color": "#6ec6ff"
+    },
+    {
+      "id": 19,
+      "date": "2026-12-14",
+      "name": "Wink",
+      "color": "#ffb3d9"
+    },
+    {
+      "id": 20,
+      "date": "2026-12-15",
+      "name": "Quilt",
+      "color": "#f0b4ff"
+    },
+    {
+      "id": 21,
+      "date": "2026-12-16",
+      "name": "Ember Reef",
+      "color": "#ff6b4a"
+    },
+    {
+      "id": 22,
+      "date": "2026-12-17",
+      "name": "Loft",
+      "color": "#b5e8ff"
+    },
+    {
+      "id": 23,
+      "date": "2026-12-18",
+      "name": "Picnic Rock",
+      "color": "#f5c16c"
+    },
+    {
+      "id": 24,
+      "date": "2026-12-19",
+      "name": "Hush",
+      "color": "#9bb7ff"
+    },
+    {
+      "id": 25,
+      "date": "2026-12-20",
+      "name": "Lantern",
+      "color": "#ffe066"
+    },
+    {
+      "id": 26,
+      "date": "2026-12-21",
+      "name": "Snowbell",
+      "color": "#e8f4ff"
+    },
+    {
+      "id": 27,
+      "date": "2026-12-22",
+      "name": "Hearth",
+      "color": "#ff9e6b"
+    },
+    {
+      "id": 28,
+      "date": "2026-12-23",
+      "name": "Homeport",
+      "color": "#7dffc4"
+    }
+  ],
+  "quests": [],
+  "progress": {
+    "xp": 0,
+    "stars": 0,
+    "streak": 0,
+    "lastCompletedDate": null,
+    "completed": {}
+  },
+  "upload": {
+    "url": "",
+    "token": ""
+  },
+  "demo": {
+    "note": "Sample data for previews only. Never shown unless the URL has ?demo=. Not a real approved quest.",
+    "today": "2026-11-28",
+    "quest": {
+      "date": "2026-11-28",
+      "status": "approved",
+      "title": "The Secret Door",
+      "prompt": "Write a short scene: a monkey finds a secret door on a new planet. What is behind the door?",
+      "powerUp": "Leave a finger-width space between words.",
+      "powerUpName": "Neat Spacer"
+    },
+    "completed": {
+      "2026-11-26": {
+        "stars": 3,
+        "xp": 10,
+        "source": "photo"
+      },
+      "2026-11-27": {
+        "stars": 3,
+        "xp": 10,
+        "source": "photo"
+      }
+    },
+    "awardedBadges": [
+      "page-snapper"
+    ]
+  }
+}
