@@ -339,11 +339,18 @@ body.shot-badges .foot { display: none !important; }
 .alerts-card h2 { margin-bottom: 8px; }
 .alerts-card .muted { margin: 0 auto 16px; max-width: 32ch; }
 .alerts-card .btn { margin-top: 4px; }
-.alerts-card.is-on { padding: 14px 20px; }
-.alerts-card.is-on h2 { display: none; }
+.alerts-card.is-on,
+.alerts-card.is-on #alertsBtn,
+.alerts-card.is-on h2,
+.alerts-card.is-on #alertsHelp,
+.alerts-card.is-on #alertsNote,
+#alertsBtn[hidden] {
+  display: none !important;
+}
 .alerts-on {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 650;
-  color: var(--mint);
+  margin: 0 auto 4px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-dim);
 }

@@ -2,6 +2,7 @@
 (() => {
   const TZ = "America/Regina";
   const STORE = "ragnar-quest-state-v1";
+  const MIGRATIONS_KEY = "ragnar-quest-migrations";
   const DB_NAME = "ragnar-quest";
   const DB_VER = 2;
   const XP_PER_PAGE = 10;
@@ -168,6 +169,81 @@
       cur = addDays(cur, -1);
     }
     return n;
+  }
+
+  function undoCompletion(date) {
+    const rec = state.completed && state.completed[date];
+    if (!rec) return false;
+    const xp = Number(rec.xp || XP_PER_PAGE);
+    const stars = Number(rec.stars || STARS_PER_PAGE);
+    delete state.completed[date];
+    state.xp = Math.max(0, (state.xp || 0) - xp);
+    state.stars = Math.max(0, (state.stars || 0) - stars);
+    const remaining = Object.keys(state.completed || {});
+    if (state.lastCompletedDate === date) {
+      remaining.sort();
+      state.lastCompletedDate = remaining.length ? remaining[remaining.length - 1] : null;
+    }
+    state.streak = computeStreak(state.completed, effectiveToday());
+    let badges = new Set(state.awardedBadges || []);
+    if (!remaining.length) badges.delete("page-snapper");
+    if (state.streak < 3) badges.delete("streak-3");
+    if (state.streak < 7) badges.delete("streak-7");
+    state.awardedBadges = Array.from(badges);
+    return true;
+  }
+
+  async function photosForDate(date) {
+    try {
+      const db = await openDB();
+      const rows = await new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains("photos")) {
+          resolve([]);
+          return;
+        }
+        const tx = db.transaction("photos", "readonly");
+        const r = tx.objectStore("photos").getAll();
+        r.onsuccess = () => resolve(r.result || []);
+        r.onerror = () => reject(r.error);
+      });
+      db.close();
+      return (rows || []).filter((row) => row && row.date === date);
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function loadMigrations() {
+    try { return JSON.parse(localStorage.getItem(MIGRATIONS_KEY) || "[]"); } catch { return []; }
+  }
+
+  function saveMigrations(list) {
+    localStorage.setItem(MIGRATIONS_KEY, JSON.stringify(list));
+  }
+
+  async function runMigrations() {
+    const done = loadMigrations();
+    const id = "undo-2026-11-26-grownups-test";
+    if (done.includes(id)) return false;
+    const date = "2026-11-26";
+    const rec = state.completed && state.completed[date];
+    if (!rec) {
+      done.push(id);
+      saveMigrations(done);
+      return false;
+    }
+    const photos = await photosForDate(date);
+    const hasPhoto = rec.source === "photo" || photos.length > 0;
+    if (hasPhoto) {
+      done.push(id);
+      saveMigrations(done);
+      return false;
+    }
+    const changed = undoCompletion(date);
+    if (changed) saveLocalState();
+    done.push(id);
+    saveMigrations(done);
+    return changed;
   }
 
   function maybeAwardBadges(date) {
@@ -347,7 +423,10 @@
     }
   }
 
+  let testMockSubscription = null;
+
   async function getExistingSubscription() {
+    if (params.get("test") === "1" && testMockSubscription) return testMockSubscription;
     try {
       if (!("serviceWorker" in navigator) || !window.PushManager) return null;
       const reg = await navigator.serviceWorker.ready;
@@ -380,23 +459,43 @@
     return direct;
   }
 
+  function hideAlertsButton() {
+    const btn = $("alertsBtn");
+    if (!btn) return;
+    btn.hidden = true;
+    btn.setAttribute("hidden", "");
+    btn.setAttribute("aria-hidden", "true");
+    btn.disabled = true;
+    btn.style.display = "none";
+  }
+
+  function showAlertsButton() {
+    const btn = $("alertsBtn");
+    if (!btn) return;
+    btn.hidden = false;
+    btn.removeAttribute("hidden");
+    btn.removeAttribute("aria-hidden");
+    btn.disabled = false;
+    btn.style.display = "";
+  }
+
   function setAlertsOnState() {
     const card = $("alertsCard");
-    const btn = $("alertsBtn");
     const help = $("alertsHelp");
     const note = $("alertsNote");
     const onEl = $("alertsOn");
-    if (!isStandalone()) {
-      if (card) card.hidden = true;
-      return;
-    }
-    if (card) {
-      card.hidden = false;
-      card.classList.add("is-on");
-    }
-    if (btn) btn.hidden = true;
+    hideAlertsButton();
     if (help) help.hidden = true;
     if (note) note.hidden = true;
+    // Hide the whole turn-on card. A tiny status line is enough.
+    if (card) {
+      card.hidden = true;
+      card.classList.add("is-on");
+    }
+    if (!isStandalone()) {
+      if (onEl) onEl.hidden = true;
+      return;
+    }
     if (onEl) onEl.hidden = false;
   }
 
@@ -422,18 +521,17 @@
     }
     card.hidden = false;
     card.classList.remove("is-on");
-    const btn = $("alertsBtn");
     const help = $("alertsHelp");
     const note = $("alertsNote");
     const onEl = $("alertsOn");
     if (onEl) onEl.hidden = true;
     if (help) help.hidden = false;
     if (perm === "denied") {
-      if (btn) btn.hidden = true;
+      hideAlertsButton();
       help.textContent = "That’s okay. You can turn on alerts later in iPad Settings if you change your mind.";
       if (note) note.hidden = true;
     } else {
-      if (btn) btn.hidden = false;
+      showAlertsButton();
       help.textContent = "I can ping you when a new writing mission is ready.";
       if (note) note.hidden = true;
     }
@@ -513,7 +611,8 @@
         note.textContent = "I couldn’t turn on alerts this time. We can try again later.";
       }
     } finally {
-      if (btn) btn.disabled = false;
+      if (notificationPermission() === "granted") hideAlertsButton();
+      else if (btn) btn.disabled = false;
     }
   }
 
@@ -970,15 +1069,26 @@
       err.hidden = true;
       err.textContent = "";
     }
+    const undoBtn = $("pinUndo");
+    if (undoBtn) undoBtn.hidden = true;
     if (pinUiMode === "saved") {
       title.textContent = "PIN saved";
       help.textContent = "This PIN stays on this iPad only. Open Grown-ups again if you need to mark a quest done without the camera.";
       input.value = "";
       input.hidden = true;
+      ok.hidden = false;
       ok.textContent = "OK";
+    } else if (pinUiMode === "undo") {
+      title.textContent = "Today’s quest is already done";
+      help.textContent = "You can undo that if it was a mistake. The quest will show again for Ragnar.";
+      input.value = "";
+      input.hidden = true;
+      ok.hidden = true;
+      if (undoBtn) undoBtn.hidden = false;
     } else {
       input.hidden = false;
       input.value = "";
+      ok.hidden = false;
       ok.textContent = "Continue";
       if (pinUiMode === "enter") {
         title.textContent = "Grown-ups";
@@ -1036,16 +1146,23 @@
       return;
     }
     if (isCompleted(today)) {
-      if (err) {
-        err.hidden = false;
-        err.textContent = "Today’s quest is already marked done.";
-      }
-      $("pinInput").value = "";
+      pinUiMode = "undo";
+      showPinDialog();
       return;
     }
     $("pinOverlay").hidden = true;
     completeQuest(today, "parent-pin");
     playCelebration(today);
+  }
+
+  function handleUndoDone() {
+    const today = effectiveToday();
+    if (!isCompleted(today)) {
+      $("pinOverlay").hidden = true;
+      return;
+    }
+    if (undoCompletion(today)) afterStateChange();
+    $("pinOverlay").hidden = true;
   }
 
   function bind() {
@@ -1062,6 +1179,8 @@
     $("celeDone").addEventListener("click", () => { $("celeOverlay").hidden = true; });
     $("grownupsBtn").addEventListener("click", openPinFlow);
     $("pinCancel").addEventListener("click", () => { $("pinOverlay").hidden = true; });
+    const pinUndo = $("pinUndo");
+    if (pinUndo) pinUndo.addEventListener("click", handleUndoDone);
     $("pinOk").addEventListener("click", handlePin);
     $("pinInput").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") handlePin();
@@ -1110,6 +1229,7 @@
     bind();
     bindRefreshListeners();
     watchPermissionChanges();
+    await runMigrations();
     renderAll();
     if (demoMode === "complete") {
       playCelebration(effectiveToday());
@@ -1131,8 +1251,27 @@
         openQuestPending: () => openQuestPending(),
         isStandalone: () => isStandalone(),
         alertsVisible: () => Boolean($("alertsCard") && !$("alertsCard").hidden),
-        alertsButtonVisible: () => Boolean($("alertsBtn") && !$("alertsBtn").hidden && $("alertsCard") && !$("alertsCard").hidden),
-        alertsOnVisible: () => Boolean($("alertsOn") && !$("alertsOn").hidden),
+        alertsButtonVisible: () => {
+          const btn = $("alertsBtn");
+          if (!btn) return false;
+          const style = window.getComputedStyle(btn);
+          return style.display !== "none" && style.visibility !== "hidden" && !btn.hidden;
+        },
+        alertsOnVisible: () => {
+          const el = $("alertsOn");
+          if (!el || el.hidden) return false;
+          const style = window.getComputedStyle(el);
+          return style.display !== "none" && style.visibility !== "hidden";
+        },
+        alertsButtonDisplay: () => $("alertsBtn") ? window.getComputedStyle($("alertsBtn")).display : "missing",
+        setMockSubscription: (sub) => { testMockSubscription = sub; },
+        undoCompletion,
+        runMigrations,
+        isCompleted: (date) => isCompleted(date || effectiveToday()),
+        stars: () => state.stars || 0,
+        xp: () => state.xp || 0,
+        streak: () => state.streak || 0,
+        completedDates: () => Object.keys((state && state.completed) || {}),
         pinOverlayVisible: () => Boolean($("pinOverlay") && !$("pinOverlay").hidden),
         pinTitle: () => $("pinTitle") ? $("pinTitle").textContent : "",
         pinHelp: () => $("pinHelp") ? $("pinHelp").textContent : "",

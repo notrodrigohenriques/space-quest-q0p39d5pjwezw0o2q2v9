@@ -1,5 +1,5 @@
 /* Ragnar's Space Quest — cache the app shell, badges, and mission alerts. */
-const CACHE = "ragnar-quest-v4";
+const CACHE = "ragnar-quest-v5";
 const TZ = "America/Regina";
 const DB_NAME = "ragnar-quest";
 const DB_VER = 2;
