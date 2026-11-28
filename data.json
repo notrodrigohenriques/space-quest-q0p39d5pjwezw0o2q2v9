@@ -11,11 +11,11 @@
     "days": 28
   },
   "strengths": [
-    "You invent amazing stories \u2014 The Boom continues your planets adventure!",
-    "You left clear spaces between your words, like in \u201cThe crash caused a boom.\u201d",
-    "Your letters, like the one to Grandma, feel warm and clear."
+    "You invent amazing stories \u2014 The Exploration takes the astronauts all the way to Jokon-2c!",
+    "In words like better and there, your t and h stand taller than the short letters.",
+    "You left clear spaces between your words, like in \u201cThe crash caused a boom.\u201d"
   ],
-  "levelUpNext": "Make tall letters like t and h stand a little taller than short ones like a and e.",
+  "levelUpNext": "Keep capital I closer in size to your other letters \u2014 not too giant.",
   "levels": [
     {
       "level": 1,
@@ -290,12 +290,17 @@
     }
   ],
   "progress": {
-    "xp": 10,
-    "stars": 3,
-    "streak": 1,
-    "lastCompletedDate": "2026-11-26",
+    "xp": 20,
+    "stars": 6,
+    "streak": 2,
+    "lastCompletedDate": "2026-11-27",
     "completed": {
       "2026-11-26": {
+        "stars": 3,
+        "xp": 10,
+        "source": "photo"
+      },
+      "2026-11-27": {
         "stars": 3,
         "xp": 10,
         "source": "photo"
